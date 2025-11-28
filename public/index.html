@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Book a Meeting</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="container">
+    <h1>Book a Meeting</h1>
+
+    <form id="booking-form">
+      <label for="name">Full name</label>
+      <input type="text" id="name" name="name" required>
+
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" required>
+
+      <label for="phone">Phone (optional)</label>
+      <input type="tel" id="phone" name="phone">
+
+      <label for="message">Message</label>
+      <textarea id="message" name="message" rows="5" required></textarea>
+
+      <label for="meeting-date">Meeting Date</label>
+      <input type="date" id="meeting-date" name="meetingDate" required>
+
+      <label for="meeting-time">Meeting Time</label>
+      <input type="time" id="meeting-time" name="meetingTime" required>
+
+      <button type="submit" id="submit-btn">Book Meeting</button>
+    </form>
+
+    <div id="google-status" style="margin-top:10px; font-size:0.95rem"></div>
+
+    <div id="success-block" aria-live="polite" style="margin-top:1em"></div>
+    <p id="status" aria-live="polite"></p>
+  </main>
+
+  <script>
+    // On page load, fetch /status to see if Google is linked
+    async function updateGoogleStatus() {
+      try {
+        const resp = await fetch('/status');
+        const data = await resp.json();
+        const googleStatusEl = document.getElementById('google-status');
+        if (data.googleLinked) {
+          googleStatusEl.innerHTML = `Google linked${data.hasRefreshToken ? ' (refresh token available)' : ''}${data.hasAccessToken ? ' (access token present)' : ''}${data.expiryDate ? ` — access expiry: ${new Date(data.expiryDate).toLocaleString()}` : ''}`;
+        } else {
+          googleStatusEl.innerHTML = `<a href='/auth' id='connect-google'>Connect Google Calendar</a> — Click to link your calendar and enable Meet generation`;
+        }
+      } catch (err) {
+        // ignore
+      }
+    }
+    updateGoogleStatus();
+ 
+    const form = document.getElementById('booking-form');
+    const statusEl = document.getElementById('status');
+    const submitBtn = document.getElementById('submit-btn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+  
+      const name = document.getElementById('name').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const phone = document.getElementById('phone').value.trim();
+      const message = document.getElementById('message').value.trim();
+      const meetingDate = document.getElementById('meeting-date').value;
+      const meetingTime = document.getElementById('meeting-time').value;
+
+      if (!name || !email || !meetingDate || !meetingTime || !message) {
+        statusEl.textContent = 'All fields are required.';
+        statusEl.style.color = 'red';
+        return;
+      }
+
+      submitBtn.disabled = true;
+      statusEl.textContent = 'Sending...';
+      statusEl.style.color = 'black';
+
+      try {
+        const response = await fetch('http://localhost:5000/send-mail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // Add meeting date/time; also include a combined ISO string for convenience
+          body: JSON.stringify({ name, email, phone, message, meetingDate, meetingTime, meetingDateTime: `${meetingDate}T${meetingTime}:00` }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          statusEl.textContent = data.message || 'Meeting request sent successfully!';
+          statusEl.style.color = 'green';
+
+          // Display detailed success block
+          const successBlock = document.getElementById('success-block');
+          const adminEmail = data.adminEmail || '';
+          const start = data.start || (meetingDate + ' ' + meetingTime);
+          const end = data.end || '';
+          const meetLink = data.meetLink || '';
+          const eventLink = data.eventLink || '';
+
+          successBlock.innerHTML = `
+            <div style="border:1px solid #2e7d32; padding:0.8rem; background:#e8f5e9; border-radius:4px;">
+              <p style="margin:0; font-weight:bold">Meeting Scheduled</p>
+              <p style="margin:0.2rem 0">Your meeting is set for <strong>${start}</strong>${end ? ' to ' + end : ''}.</p>
+              ${meetLink ? `<p style="margin:0.2rem 0">Google Meet: <a href="${meetLink}" target="_blank">${meetLink}</a></p>` : ''}
+              ${eventLink ? `<p style="margin:0.2rem 0">Calendar Event: <a href="${eventLink}" target="_blank">Open Event</a></p>` : ''}
+              <p style="margin:0.2rem 0">Admin contact: <strong>${adminEmail}</strong></p>
+              <p style="margin:0.2rem 0; font-size:0.9rem; color:#555">This form will auto-reset in <span id="countdown">30</span> seconds.</p>
+            </div>
+          `;
+
+          // Reset form after 30 seconds with countdown
+          let seconds = 30;
+          const countdownEl = document.getElementById('countdown');
+          const timer = setInterval(() => {
+            seconds -= 1;
+            if (countdownEl) countdownEl.textContent = String(seconds);
+            if (seconds <= 0) {
+              clearInterval(timer);
+              form.reset();
+              statusEl.textContent = '';
+              successBlock.innerHTML = '';
+            }
+          }, 1000);
+          
+          // Show meeting links on page as well
+          if (meetLink || eventLink) {
+            const linkParts = [];
+            if (meetLink) linkParts.push(`<a href="${meetLink}" target="_blank">Join Google Meet</a>`);
+            if (eventLink) linkParts.push(`<a href="${eventLink}" target="_blank">Open Calendar Event</a>`);
+            statusEl.innerHTML += '<br/>' + linkParts.join(' | ');
+          }
+        } else {
+          statusEl.textContent = data.message || 'Failed to send email.';
+          statusEl.style.color = 'red';
+        }
+        } catch (error) {
+        statusEl.textContent = 'Failed to send email. Check the server console for errors.';
+        statusEl.style.color = 'red';
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
