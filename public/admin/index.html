@@ -12,16 +12,32 @@
 </head>
 <body>
   <div class="d-flex">
-    <aside class="sidebar p-3" style="width:250px">
-      <h4>Admin</h4>
+    <aside class="sidebar p-3" style="width:260px;">
+      <div class="d-flex align-items-center mb-3">
+        <div class="me-2" style="width:36px;height:36px;background:#0d6efd;border-radius:6px"></div>
+        <div>
+          <h5 class="mb-0">Admin</h5>
+          <small class="text-muted">Dashboard</small>
+        </div>
+      </div>
       <ul class="nav flex-column">
         <li class="nav-item"><a class="nav-link" href="#/dashboard">Dashboard</a></li>
         <li class="nav-item"><a class="nav-link" href="#/meetings">Meetings</a></li>
         <li class="nav-item"><a class="nav-link" href="#/settings">Settings</a></li>
+        <li class="nav-item"><a class="nav-link" href="#/team-members">Team Members</a></li>
         <li class="nav-item"><a class="nav-link" href="#/logout">Logout</a></li>
       </ul>
     </aside>
     <div class="flex-grow-1 p-4">
+      <nav class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <div id="pageTitle" style="font-weight:600; font-size:1.2rem">Dashboard</div>
+          <div id="adminStatusContainer" style="font-size:12px; color:#666;">&nbsp;</div>
+        </div>
+        <div>
+          <input id="searchBox" class="form-control form-control-sm" placeholder="Search meetings..." style="width:240px; display:inline-block" />
+        </div>
+      </nav>
       <div id="content"></div>
     </div>
   </div>
@@ -54,6 +70,9 @@
             <div class="mb-3"><input class="form-control" id="password" placeholder="password" type="password"/></div>
             <button class="btn btn-primary">Login</button>
           </form>
+
+
+
         `;
         document.getElementById('loginForm').addEventListener('submit', async (e)=>{
           e.preventDefault();
@@ -71,9 +90,15 @@
         return;
       }
       if (!token()) { goto('/login'); return; }
+      // Update active link highlight
+      document.querySelectorAll('.nav-link').forEach(a => a.classList.remove('active'));
+      const activeLink = document.querySelector(`[href='#${h}']`);
+      if (activeLink) activeLink.classList.add('active');
 
       if (h === '/dashboard' || h === '/') {
         // fetch counts
+        document.getElementById('pageTitle').textContent = 'Dashboard';
+        document.getElementById('searchBox').style.display = 'none';
         const r = await authFetch('/admin/meetings');
         const d = await r.json();
         const meetings = d.meetings || [];
@@ -87,23 +112,106 @@
             <div class="col-md-3"><div class="card p-3">Upcoming<br/><strong>${upcoming}</strong></div></div>
             <div class="col-md-3"><div class="card p-3">Cancelled<br/><strong>${cancelled}</strong></div></div>
           </div>
+
+          
         `;
         return;
       }
+      // on route change for admin pages, fetch diagnostics and show them
+      try {
+        const diag = await authFetch('/admin/diagnostics');
+        if (diag.ok || diag.status === 200) {
+          const info = await diag.json();
+          const adminStatusEl = document.getElementById('adminStatusContainer');
+          adminStatusEl.innerHTML = `DB: ${info.dbStatus || 'unknown'}${info.googleLinked ? ' — Google linked' : ''}`;
+        }
+      } catch (err) {
+        // ignore
+      }
+      // Also fetch Google status to show if linked and expiry info
+      try {
+        const s = await fetch('/status');
+        if (s.ok) {
+          const status = await s.json();
+          const adminStatusEl = document.getElementById('adminStatusContainer');
+          if (status.googleLinked) {
+            adminStatusEl.innerHTML += ` — Google linked ${status.hasRefreshToken ? '(refresh token available)' : ''} ${status.expiryDate ? ` — expiry: ${new Date(status.expiryDate).toLocaleString()}` : ''}`;
+            // Show a small link to open calendar/auth
+            adminStatusEl.innerHTML += ` <a href='/revoke' class='ms-2' style='font-size:12px'>Revoke</a>`;
+          } else {
+            adminStatusEl.innerHTML += ` — <a href='/auth' style='font-size:12px'>Connect Google Calendar</a>`;
+          }
+        }
+      } catch (err) {
+        // ignore fetch errors
+      }
       if (h === '/meetings') {
+        document.getElementById('pageTitle').textContent = 'Meetings';
+        document.getElementById('searchBox').style.display = '';
         const r = await authFetch('/admin/meetings');
         const d = await r.json();
         const meetings = d.meetings || [];
         content.innerHTML = `
           <h2>Meetings</h2>
-          <table class="table table-striped"><thead><tr><th>Name</th><th>Email</th><th>Time</th><th>Link</th><th>Status</th><th>Actions</th></tr></thead><tbody id="meetingsBody"></tbody></table>
+          <!-- Meeting details modal -->
+          <div class="modal fade" id="meetingModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+              <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Meeting Details</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+                <div class="modal-body" id="meetingModalBody"></div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
+              </div>
+            </div>
+          </div>
+          <table class="table table-striped"><thead><tr><th>Name</th><th>Email</th><th>Time</th><th>Guests</th><th>Status</th><th>Actions</th></tr></thead><tbody id="meetingsBody"></tbody></table>
         `;
         const tbody = document.getElementById('meetingsBody');
+        // keep a copy in closure to access later for viewing details
+        window._meetingsList = meetings;
         meetings.forEach(m => {
           const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${m.name}</td><td>${m.email}</td><td>${new Date(m.start).toLocaleString()}</td><td>${m.hangoutLink ? `<a href='${m.hangoutLink}' target='_blank'>meet</a>` : ''}</td><td>${m.status}</td><td><button class='btn btn-sm btn-danger cancel' data-id='${m._id}'>Cancel</button> <button class='btn btn-sm btn-secondary delete' data-id='${m._id}'>Delete</button></td>`;
+          const guestCount = (m.attendees && m.attendees.length) ? m.attendees.length : 0;
+          tr.innerHTML = `<td>${m.name}</td><td>${m.email}</td><td>${new Date(m.start).toLocaleString()}</td><td>${guestCount}</td><td>${m.status}</td><td><button class='btn btn-sm btn-primary view' data-id='${m._id}'>View</button> <button class='btn btn-sm btn-danger cancel' data-id='${m._id}'>Cancel</button> <button class='btn btn-sm btn-secondary delete' data-id='${m._id}'>Delete</button></td>`;
           tbody.appendChild(tr);
         });
+        // attach simple search filter
+        document.getElementById('searchBox').oninput = function() {
+          const q = this.value.toLowerCase();
+          document.querySelectorAll('#meetingsBody tr').forEach(tr => {
+            const txt = tr.textContent.toLowerCase();
+            tr.style.display = txt.includes(q) ? '' : 'none';
+          });
+        };
+        document.querySelectorAll('.view').forEach(btn => btn.addEventListener('click', async (e)=>{
+          const id = btn.dataset.id;
+          const m = (window._meetingsList || []).find(x => x._id === id);
+          if (!m) { alert('Could not find meeting info'); return; }
+          const body = document.getElementById('meetingModalBody');
+          body.innerHTML = `
+            <div class="row">
+              <div class="col-md-6"><strong>Name:</strong> ${m.name}</div>
+              <div class="col-md-6"><strong>Email:</strong> ${m.email}</div>
+            </div>
+            <div class="row mt-2">
+              <div class="col-md-6"><strong>Phone:</strong> ${m.phone || '(not provided)'}</div>
+              <div class="col-md-6"><strong>Company:</strong> ${m.companyName || ''}</div>
+            </div>
+            <div class="row mt-2">
+              <div class="col-md-6"><strong>Industries:</strong> ${m.industries || ''}</div>
+              <div class="col-md-6"><strong>Job Titles:</strong> ${m.jobTitles || ''}</div>
+            </div>
+            <div class="row mt-2">
+              <div class="col-md-6"><strong>Priority:</strong> ${m.priority || ''}</div>
+              <div class="col-md-6"><strong>Monthly Contacts:</strong> ${m.monthlyContacts || ''}</div>
+            </div>
+            <div class="row mt-3"><div class="col-12"><strong>Message:</strong><br/>${m.message || ''}</div></div>
+            <div class="row mt-3"><div class="col-12"><strong>Attendees:</strong> ${(m.attendees && m.attendees.length) ? m.attendees.map(a=>`<a href='mailto:${a}'>${a}</a>`).join(', ') : '(none)'}</div></div>
+            <div class="row mt-3"><div class="col-md-6"><strong>Start:</strong> ${new Date(m.start).toLocaleString()}</div><div class="col-md-6"><strong>End:</strong> ${new Date(m.end).toLocaleString()}</div></div>
+            <div class="row mt-2"><div class="col-12"><strong>Meeting Link:</strong> ${m.hangoutLink ? `<a href='${m.hangoutLink}' target='_blank'>${m.hangoutLink}</a>` : '(none)'}</div></div>
+          `;
+          const modalEl = document.getElementById('meetingModal');
+          const modal = new bootstrap.Modal(modalEl); modal.show();
+        }));
         document.querySelectorAll('.cancel').forEach(btn => btn.addEventListener('click', async (e)=>{
           const id = btn.dataset.id;
           if (!confirm('Cancel meeting?')) return;
@@ -118,7 +226,49 @@
         }));
         return;
       }
+      if (h === '/team-members') {
+        document.getElementById('pageTitle').textContent = 'Team Members';
+        document.getElementById('searchBox').style.display = 'none';
+        const r = await authFetch('/admin/team-members');
+        const d = await r.json();
+        const members = d.members || [];
+        content.innerHTML = `
+          <h2>Team Members</h2>
+          <div class='mb-3'>
+            <form id='addMemberForm' class='d-flex gap-2'>
+              <input class='form-control' id='memberName' placeholder='Name' required>
+              <input class='form-control' id='memberEmail' placeholder='Email' required>
+              <input class='form-control' id='memberRole' placeholder='Role'>
+              <button class='btn btn-success'>Add</button>
+            </form>
+          </div>
+          <table class='table'><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Actions</th></tr></thead><tbody id='membersBody'></tbody></table>
+        `;
+        const tbody = document.getElementById('membersBody');
+        members.forEach(m => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${m.name}</td><td>${m.email}</td><td>${m.role || ''}</td><td><button class='btn btn-sm btn-danger delete' data-id='${m._id}'>Delete</button></td>`;
+          tbody.appendChild(tr);
+        });
+        document.getElementById('addMemberForm').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const name = document.getElementById('memberName').value;
+          const email = document.getElementById('memberEmail').value;
+          const role = document.getElementById('memberRole').value;
+          const rr = await authFetch('/admin/team-members', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name,email,role}) });
+          if (rr.ok) { alert('Added'); goto('/team-members'); } else { alert('Failed to add'); }
+        });
+        document.querySelectorAll('.delete').forEach(btn => btn.addEventListener('click', async (e) => {
+          const id = btn.dataset.id;
+          if (!confirm('Delete team member?')) return;
+          const rr = await authFetch(`/admin/team-members/${id}`, { method: 'DELETE' });
+          if (rr.ok) { alert('Deleted'); goto('/team-members'); } else { alert('Failed to delete'); }
+        }));
+        return;
+      }
       if (h === '/settings') {
+        document.getElementById('pageTitle').textContent = 'Settings';
+        document.getElementById('searchBox').style.display = 'none';
         const r = await authFetch('/admin/settings');
         const d = await r.json();
         const settings = d || {};
@@ -127,10 +277,11 @@
           <form id='settingsForm'>
             <div class='mb-3'><label class='form-label'>Admin Email</label><input class='form-control' id='adminEmail' value='${settings.adminEmail || ''}'></div>
             <div class='mb-3'><label class='form-label'>Default duration (minutes)</label><input class='form-control' id='defaultDuration' value='${settings.defaultDurationMinutes || 30}'></div>
+            <div class='form-check mb-3'><input class='form-check-input' type='checkbox' id='sendInvites' ${settings.sendInvitesToAttendees ? 'checked' : ''}><label class='form-check-label' for='sendInvites'>Send Google Calendar invites to attendees</label></div>
             <button class='btn btn-primary'>Save</button>
           </form>
         `;
-        document.getElementById('settingsForm').addEventListener('submit', async (e) => { e.preventDefault(); const adminEmail = document.getElementById('adminEmail').value; const defaultDuration = parseInt(document.getElementById('defaultDuration').value || '30', 10); const rr = await authFetch('/admin/settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({adminEmail, defaultDurationMinutes: defaultDuration})}); if (rr.ok) alert('Saved'); });
+        document.getElementById('settingsForm').addEventListener('submit', async (e) => { e.preventDefault(); const adminEmail = document.getElementById('adminEmail').value; const defaultDuration = parseInt(document.getElementById('defaultDuration').value || '30', 10); const sendInvites = document.getElementById('sendInvites').checked; const rr = await authFetch('/admin/settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({adminEmail, defaultDurationMinutes: defaultDuration, sendInvitesToAttendees: sendInvites})}); if (rr.ok) alert('Saved'); });
         return;
       }
       if (h === '/logout') { localStorage.removeItem('adminToken'); goto('/login'); return; }
@@ -140,5 +291,6 @@
     window.addEventListener('hashchange', render);
     render();
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

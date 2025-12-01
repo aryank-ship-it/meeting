@@ -43,8 +43,8 @@ node server.js
 ## Notes
 - The event is added to the authenticated user’s Primary Google Calendar.
 - The Google Meet link is created automatically and returned in the `/send-mail` response.
-- No email is sent to the meeting request submitter by default. The app still uses Nodemailer to send a message to the configured admin address.
- - After the event is created successfully, the system sends two emails: a user email and an admin email.
+ - By default, the system sends an admin notification email and optionally a user confirmation email.
+ - If you enable "Send Google Calendar invites to attendees" (via the admin settings), the app will create the calendar event with the attendee included and Google will send the invitation email to them. In that mode the service will skip sending an additional manual user email to avoid duplicate notifications.
 - Do not commit `google_tokens.json` or any credentials to a public repository.
 - If you see the error:
   "Cannot find module 'node:events'"
@@ -76,6 +76,51 @@ node server.js
   * If using OAuth2, ensure the refresh token belongs to the same `GMAIL_USER` and was obtained with the Client ID/Secret currently configured.
   * If both OAuth and SMTP envs are present, the server now prefers SMTP (EMAIL_USER/EMAIL_PASS). Remove OAuth vars or set `EMAIL_PASS` if you prefer SMTP.
   * If your email provider is not Gmail, configure `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, and `EMAIL_SMTP_SECURE` in your `.env` so SMTP transport uses the correct host/port.
+
+## Team Members (Admin)
+
+- Admins can manage team members via the Admin Dashboard: add, remove, and view team members.
+- Team members receive meeting notification emails whenever a user books a meeting (alongside the admin and the requestor).
+- To manage team members, login to the Admin Dashboard and click "Team Members".
+
+### How notifications work
+- When a user schedules a meeting, the app creates a Google Calendar event (if Google OAuth is linked).
+- The app sends a meeting notification email to:
+  - The user who scheduled the meeting
+  - The configured ADMIN_EMAIL
+  - All team members stored in the database
+   - Any guest emails added at booking time (they are added as attendees and receive invites/notifications as well)
+
+### Stored booking data & Admin view
+- When a user submits the booking form, the following data is stored per meeting in the database:
+  - name, email, phone
+  - attendees (guest emails)
+  - companyName, industries, jobTitles
+  - priority, monthlyContacts
+  - message, start, end, hangoutLink, htmlLink, eventId
+- Admin Dashboard > Meetings: Click the **View** button to see full booking details including attendees and the user-provided fields.
+
+### Integrating Team Members
+1. Start the server: `node server.js`.
+2. Ensure MongoDB is running and your Google OAuth is linked (via `/auth`).
+3. Login to the admin dashboard (create an admin using `ADMIN_EMAIL` & `ADMIN_PASS` env vars, or create admin via DB).
+4. Add team members via the dashboard.
+5. Test booking a meeting via the public booking page. Confirm:
+   - The Google Calendar event is created.
+   - A single consolidated notification email is sent to the user, the admin, and the team members.
+
+
+### API Endpoints
+- GET /admin/team-members — list all team members (requires admin auth)
+- POST /admin/team-members — create a new member (body: { name, email, role })
+- DELETE /admin/team-members/:id — delete a member
+
+Example using curl:
+```bash
+curl -H "Authorization: Bearer <token>" http://localhost:5000/admin/team-members
+curl -H "Authorization: Bearer <token>" -X POST http://localhost:5000/admin/team-members -d '{"name":"Alice","email":"alice@example.com","role":"support"}' -H 'Content-Type: application/json'
+curl -H "Authorization: Bearer <token>" -X DELETE http://localhost:5000/admin/team-members/607d1f... 
+```
 
 ## Security & Good Practice
 - If you've accidentally exposed credentials (Client ID/Secret) in the code or repo, rotate the Client Secret in the Google Cloud Console immediately and update your environment variables.

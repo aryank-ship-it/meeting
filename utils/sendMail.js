@@ -88,14 +88,16 @@ async function verifyTransporter() {
 async function sendMail(to, subject, html) {
   const t = createTransporter();
   const from = process.env.EMAIL_USER || process.env.GMAIL_USER || 'no-reply@example.com';
+  // Allow `to` to be a string or array of emails
+  const normalizedTo = Array.isArray(to) ? to.join(',') : to;
   const mailOptions = {
     from,
-    to,
+    to: normalizedTo,
     subject,
     html,
   };
 
-  console.log(`sendMail: Sending email to ${to} with subject: ${subject}`);
+  console.log(`sendMail: Sending email to ${normalizedTo} with subject: ${subject}`);
   try {
     // If transporter uses OAuth2 and we have google oauth client with refresh token, set accessToken dynamically
     if (googleClientOAuth2 && googleClientOAuth2.credentials && googleClientOAuth2.credentials.refresh_token) {
@@ -115,7 +117,7 @@ async function sendMail(to, subject, html) {
       }
     }
     const info = await t.sendMail(mailOptions);
-    console.log(`sendMail: Email sent to ${to}, messageId: ${info.messageId || info.messageId}`);
+    console.log(`sendMail: Email sent to ${normalizedTo}, messageId: ${info.messageId || info.messageId}`);
     return info;
   } catch (err) {
     console.error(`sendMail: Failed to send email to ${to}:`, err && err.message ? err.message : err);

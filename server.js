@@ -41,12 +41,18 @@ verifyTransporter().catch((err) => {
 
 app.post('/send-mail', async (req, res) => {
   try {
-    const { name, email, phone, message, meetingDate, meetingTime } = req.body || {};
+    const { name, email, phone, message, meetingDate, meetingTime, attendees: incomingAttendees, companyName, industries, jobTitles, priority, monthlyContacts } = req.body || {};
 
     
     if (!name || !email || !meetingDate || !meetingTime || !message) {
       return res.status(400).json({ message: 'Name, email, meetingDate, meetingTime and message are required.' });
     }
+
+    // Fetch settings to compute start & end times and sendUpdates for Google event
+    const Settings = require('./models/Settings');
+    const settingsDoc = (await Settings.findOne({}).exec()) || {};
+    const defaultDurationMinutes = settingsDoc.defaultDurationMinutes || 30;
+    const shouldSendInvites = !!settingsDoc.sendInvitesToAttendees;
 
     // compute start & end times for Google Calendar event
     const tz = 'Asia/Kolkata';
@@ -54,16 +60,21 @@ app.post('/send-mail', async (req, res) => {
     try {
       start = new Date(`${meetingDate}T${meetingTime}:00`);
       if (isNaN(start.getTime())) throw new Error('Invalid date/time');
-      end = new Date(start.getTime() + 30 * 60 * 1000);
+      end = new Date(start.getTime() + (defaultDurationMinutes * 60 * 1000));
     } catch (err) {
       const now = new Date();
       start = new Date(now.getTime() + 60 * 60 * 1000);
-      end = new Date(start.getTime() + 30 * 60 * 1000);
+      end = new Date(start.getTime() + (defaultDurationMinutes * 60 * 1000));
     }
 
     // Attempt to create a Google Calendar event (with Google Meet link)
     try {
-      const meeting = await createGoogleMeeting({ name, email, phone, message, startTime: start, endTime: end });
+      // Include user and any guest attendees (if provided) as attendees for the Google Calendar event
+      const attendees = (Array.isArray(incomingAttendees) && incomingAttendees.length)
+        ? Array.from(new Set([email, ...incomingAttendees].filter(Boolean))).map(e => ({ email: e }))
+        : [{ email }];
+      const sendUpdates = shouldSendInvites ? 'all' : 'none';
+      const meeting = await createGoogleMeeting({ name, email, phone, message, startTime: start, endTime: end, attendees, sendUpdates });
       console.log('Google Meeting created with link:', meeting.hangoutLink);
 
       // Format times nicely
@@ -72,13 +83,7 @@ app.post('/send-mail', async (req, res) => {
 
       // Prepare email content
       const userSubject = 'Your Meeting Is Scheduled';
-      const userHtml = `
-        <p>Hi ${name},</p>
-        <p>Your meeting is scheduled for <strong>${startFormatted}</strong> to <strong>${endFormatted}</strong> (${tz}).</p>
-        <p>Join Google Meet: <a href="${meeting.hangoutLink}" target="_blank">${meeting.hangoutLink}</a></p>
-        <p>Thanks,</p>
-        <p>Your Team</p>
-      `;
+      const userHtml = require('./utils/emailTemplates').meetingNotification({ name, email, startFormatted, endFormatted, tz, meetLink: meeting.hangoutLink, message, recipients: [email] });
 
       const adminSubject = 'New Meeting Scheduled';
       const adminHtml = `
@@ -90,6 +95,7 @@ app.post('/send-mail', async (req, res) => {
         <p><strong>Message:</strong><br/>${message}</p>
         <p><strong>Google Meet:</strong> <a href="${meeting.hangoutLink}" target="_blank">${meeting.hangoutLink}</a></p>
         <p>Calendar Event: <a href="${meeting.htmlLink}" target="_blank">Open Event</a></p>
+        <p><em>Sent to admin + team members</em></p>
       `;
 
       // Persist meeting information in DB
@@ -100,6 +106,12 @@ app.post('/send-mail', async (req, res) => {
           email,
           phone,
           message,
+          attendees: attendees.map(a => a.email || a),
+          companyName: companyName || undefined,
+          industries: (industries || undefined),
+          jobTitles: (jobTitles || undefined),
+          priority: (priority || undefined),
+          monthlyContacts: (monthlyContacts || undefined),
           start,
           end,
           timeZone: tz,
@@ -111,22 +123,33 @@ app.post('/send-mail', async (req, res) => {
       } catch (saveErr) {
         console.error('Failed to save meeting to DB:', saveErr && saveErr.message ? saveErr.message : saveErr);
       }
+      // Prepare recipients: user, admin and all team members
+      try {
+        const TeamMember = require('./models/TeamMember');
+        const members = await TeamMember.find({}).lean().exec();
+        const memberEmails = members.filter(m => m && m.email).map(m => m.email);
+        // Also dedupe with attendees (guests) to avoid double sends
+        const guestEmails = (Array.isArray(incomingAttendees) ? incomingAttendees : []).filter(Boolean);
+        const recipients = Array.from(new Set([email, ADMIN_EMAIL, ...memberEmails, ...guestEmails].filter(Boolean)));
 
-      // Send emails: await them but don't fail if they fail
-      try {
-        await sendMail(email, userSubject, userHtml);
+        // Build a composite HTML that mentions that the message was sent to admin + team members
+        const recipientsHtml = `<p><strong>Recipients:</strong> ${recipients.join(', ')}</p><p><em>Note: this event was also added to Google Calendar</em></p>`;
+        const sharedHtml = require('./utils/emailTemplates').meetingNotification({ name, email, startFormatted, endFormatted, tz, meetLink: meeting.hangoutLink, message, recipients });
+
+        // Send a single email to all recipients (user + admin + members)
+        try {
+          await sendMail(recipients, `Meeting Scheduled — ${name}`, sharedHtml);
+          console.log('Emails sent to user, admin, and team members:', recipients.join(','));
+        } catch (err) {
+          console.error('Failed to send notifications to recipients:', err && err.message ? err.message : err);
+        }
       } catch (err) {
-        console.error('Failed to send user email:', err && err.message ? err.message : err);
-      }
-      try {
-        await sendMail(ADMIN_EMAIL, adminSubject, adminHtml);
-      } catch (err) {
-        console.error('Failed to send admin email:', err && err.message ? err.message : err);
+        console.error('Failed to fetch/send to team members:', err && err.message ? err.message : err);
       }
 
       return res.json({
         success: true,
-        message: 'Meeting scheduled and emails sent successfully.',
+        message: 'Meeting scheduled. Emails sent to user, admin, and team members.',
         meetLink: meeting.hangoutLink,
         eventLink: meeting.htmlLink,
         adminEmail: ADMIN_EMAIL,
@@ -145,10 +168,58 @@ app.post('/send-mail', async (req, res) => {
         <p><strong>Message:</strong><br/>${message}</p>
         <p><strong>Selected Time:</strong> ${meetingDate} ${meetingTime}</p>
       `;
+      // Persist meeting even when we couldn't create the event
       try {
-        await sendMail(ADMIN_EMAIL, adminFallbackSubject, adminFallbackHtml);
-      } catch (sendErr) {
-        console.error('Failed to send fallback admin email:', sendErr && sendErr.message ? sendErr.message : sendErr);
+        const MeetingModel = require('./models/Meeting');
+        const meetingDoc = await MeetingModel.create({
+          name,
+          email,
+          phone,
+          message,
+          attendees: (Array.isArray(incomingAttendees) ? incomingAttendees : []).filter(Boolean),
+          companyName: companyName || undefined,
+          industries: (industries || undefined),
+          jobTitles: (jobTitles || undefined),
+          priority: (priority || undefined),
+          monthlyContacts: (monthlyContacts || undefined),
+          start,
+          end,
+          timeZone: tz,
+          status: 'scheduled'
+        });
+        console.log('Fallback meeting saved to DB:', meetingDoc._id);
+      } catch (saveErr) {
+        console.error('Failed to save fallback meeting to DB:', saveErr && saveErr.message ? saveErr.message : saveErr);
+      }
+
+      try {
+        // Also fetch team members so admin + team members are notified about the fallback
+        const TeamMember = require('./models/TeamMember');
+        const members = await TeamMember.find({}).lean().exec();
+        const memberEmails = members.filter(m => m && m.email).map(m => m.email);
+        const recipients = Array.from(new Set([ADMIN_EMAIL, ...memberEmails].filter(Boolean)));
+        try {
+          const recipientsHtml = `<p><strong>Recipients:</strong> ${recipients.join(', ')}</p>`;
+          await sendMail(recipients, adminFallbackSubject, adminFallbackHtml + recipientsHtml);
+        } catch (sendErr) {
+          console.error('Failed to send fallback admin/team email:', sendErr && sendErr.message ? sendErr.message : sendErr);
+        }
+      } catch (err) {
+        console.error('Failed to fetch team members for fallback:', err && err.message ? err.message : err);
+      }
+
+      // Also notify the user even when Google Calendar event could not be created
+      try {
+        const userFallbackSubject = 'Your Meeting Request — Pending Calendar Confirmation';
+        const userFallbackHtml = `<p>Hi ${name},</p>
+          <p>Thanks for requesting a meeting. We were unable to automatically create a Google Calendar event for your selected time due to a technical issue.</p>
+          <p>Your requested time: <strong>${start.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</strong></p>
+          <p>An admin will reach out shortly to confirm the scheduling.</p>
+          <p>Thanks,</p>
+          <p>Your Team</p>`;
+        await sendMail(email, userFallbackSubject, userFallbackHtml);
+      } catch (userErr) {
+        console.error('Failed to send fallback user email:', userErr && userErr.message ? userErr.message : userErr);
       }
       return res.json({ success: true, message: 'Meeting request sent successfully! (Calendar not linked)', adminEmail: ADMIN_EMAIL, start: start.toISOString(), end: end.toISOString() });
     }

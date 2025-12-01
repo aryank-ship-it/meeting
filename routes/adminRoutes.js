@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const Admin = require('../models/Admin');
 const Meeting = require('../models/Meeting');
 const Settings = require('../models/Settings');
+const TeamMember = require('../models/TeamMember');
 const verifyAdmin = require('../middleware/authAdmin');
 const { sendMail } = require('../utils/sendMail');
 const { oauth2Client, loadTokensFromFile } = require('../googleClient');
@@ -120,6 +121,47 @@ router.get('/meetings', async (req, res) => {
     return res.json({ meetings });
   } catch (err) {
     console.error('Meetings list error', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// TEAM MEMBERS CRUD
+// GET /admin/team-members
+router.get('/team-members', async (req, res) => {
+  try {
+    const members = await TeamMember.find({}).sort({ createdAt: -1 }).exec();
+    return res.json({ members });
+  } catch (err) {
+    console.error('Team members list error', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// POST /admin/team-members
+router.post('/team-members', async (req, res) => {
+  try {
+    const { name, email, role } = req.body || {};
+    if (!name || !email) return res.status(400).json({ message: 'Missing name or email' });
+    // Prevent duplicates
+    const existing = await TeamMember.findOne({ email }).exec();
+    if (existing) return res.status(409).json({ message: 'Team member with this email already exists' });
+    const mm = await TeamMember.create({ name, email, role });
+    return res.json({ success: true, member: mm });
+  } catch (err) {
+    console.error('Create team member error', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// DELETE /admin/team-members/:id
+router.delete('/team-members/:id', async (req, res) => {
+  try {
+    const member = await TeamMember.findById(req.params.id);
+    if (!member) return res.status(404).json({ message: 'Not found' });
+    await member.remove();
+    return res.json({ success: true, message: 'Team member removed' });
+  } catch (err) {
+    console.error('Delete team member error', err);
     return res.status(500).json({ message: 'Server error' });
   }
 });

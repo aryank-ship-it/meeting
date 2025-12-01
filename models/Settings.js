@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const SettingsSchema = new mongoose.Schema({
   adminEmail: { type: String },
   defaultDurationMinutes: { type: Number, default: 30 },
+  sendInvitesToAttendees: { type: Boolean, default: false },
   emailTransport: {
     service: { type: String },
     user: { type: String },

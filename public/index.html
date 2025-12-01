@@ -3,149 +3,197 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Book a Meeting</title>
-  <link rel="stylesheet" href="style.css">
+  <title>Book Appointment</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .modal-container { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:15px; }
+    .appointment-modal { background: white; border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,0.08); max-width:580px; width:100%; padding:24px; }
+    .close-btn { position:absolute; right:15px; top:15px; background:none; border:none; font-size:22px; color:#999; cursor:pointer; }
+    .modal-title { color:#0d6efd; font-size:22px; font-weight:600; margin-bottom:4px; }
+    .modal-subtitle { color:#6c757d; font-size:13px; margin-bottom:20px; }
+    .form-label { font-weight:500; color:#212529; font-size:13px; margin-bottom:4px; }
+    .required { color:#dc3545; margin-left:2px; }
+    .form-control, .form-select { border:1px solid #dee2e6; border-radius:4px; padding:7px 10px; font-size:14px; }
+    .form-control:focus, .form-select:focus { border-color:#0d6efd; box-shadow:0 0 0 2px rgba(13,110,253,0.08); }
+    .add-guest-btn { background:none; border:none; color:#0d6efd; font-size:13px; padding:0; margin-bottom:8px; cursor:pointer; }
+    .btn-reset { padding:8px 20px; border:1px solid #dee2e6; color:#666; background:white; border-radius:4px; font-size:14px; }
+    .btn-submit { padding:8px 24px; background-color:#0d6efd; color:white; border-radius:4px; border:none; font-size:14px; }
+    .button-group { display:flex; justify-content:space-between; margin-top:20px; }
+    .guest-row { display:flex; gap:6px; margin-bottom:6px; }
+    .section { margin-bottom:16px; }
+    .row-compact { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .time-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .form-check { margin-bottom:0; }
+    .form-check-label { font-size:13px; }
+  </style>
 </head>
 <body>
-  <main class="container">
-    <h1>Book a Meeting</h1>
+  <div class="modal-container">
+    <div class="appointment-modal position-relative">
+      <button class="close-btn" onclick="closeModal()">×</button>
+      <h2 class="modal-title">Book Appointment</h2>
+      <p class="modal-subtitle">Schedule a meeting to learn about Deep Enrich</p>
 
-    <form id="booking-form">
-      <label for="name">Full name</label>
-      <input type="text" id="name" name="name" required>
+      <form id="bookingForm">
+        <!-- Contact Info -->
+        <div class="section">
+          <div class="row-compact">
+            <div>
+              <label class="form-label">Name<span class="required">*</span></label>
+              <input id="name" class="form-control" required />
+            </div>
+            <div>
+              <label class="form-label">Email<span class="required">*</span></label>
+              <input id="email" type="email" class="form-control" required />
+            </div>
+          </div>
+        </div>
 
-      <label for="email">Email</label>
-      <input type="email" id="email" name="email" required>
+        <div class="section">
+          <button type="button" class="add-guest-btn" id="addGuestBtn">+ Add Guest</button>
+          <div id="guestsContainer"></div>
+        </div>
 
-      <label for="phone">Phone (optional)</label>
-      <input type="tel" id="phone" name="phone">
+        <div class="section">
+          <div class="row-compact">
+            <div>
+              <label class="form-label">Company</label>
+              <input id="companyName" class="form-control" />
+            </div>
+            <div>
+              <label class="form-label">Phone</label>
+              <input id="contactNumber" type="tel" class="form-control" />
+            </div>
+          </div>
+        </div>
 
-      <label for="message">Message</label>
-      <textarea id="message" name="message" rows="5" required></textarea>
+        <!-- Date & Time -->
+        <div class="section">
+          <div class="time-row">
+            <div>
+              <label class="form-label">Date<span class="required">*</span></label>
+              <input id="meetingDate" type="date" class="form-control" required />
+            </div>
+            <div>
+              <label class="form-label">Time<span class="required">*</span></label>
+              <input id="meetingTime" type="time" class="form-control" required />
+            </div>
+          </div>
+        </div>
 
-      <label for="meeting-date">Meeting Date</label>
-      <input type="date" id="meeting-date" name="meetingDate" required>
+        <!-- Message -->
+        <div class="section">
+          <label class="form-label">Message<span class="required">*</span></label>
+          <textarea id="message" rows="3" class="form-control" required></textarea>
+        </div>
 
-      <label for="meeting-time">Meeting Time</label>
-      <input type="time" id="meeting-time" name="meetingTime" required>
+        <!-- Additional Info -->
+        <div class="section">
+          <div class="row-compact">
+            <div>
+              <label class="form-label">Target Industries</label>
+              <input id="industries" class="form-control" placeholder="Pharma, IT..." />
+            </div>
+            <div>
+              <label class="form-label">Job Titles</label>
+              <input id="jobTitles" class="form-control" placeholder="Director, Manager..." />
+            </div>
+          </div>
+        </div>
 
-      <button type="submit" id="submit-btn">Book Meeting</button>
-    </form>
+        <div class="section">
+          <label class="form-label mb-2">Priority</label>
+          <div class="d-flex gap-3">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="priority" id="contactOnly" value="contact">
+              <label class="form-check-label" for="contactOnly">Contact only</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="priority" id="emailOnly" value="email">
+              <label class="form-check-label" for="emailOnly">Email only</label>
+            </div>
+          </div>
+        </div>
 
-    <div id="google-status" style="margin-top:10px; font-size:0.95rem"></div>
+        <div class="section">
+          <label class="form-label">Monthly Contacts Expected</label>
+          <input id="monthlyContacts" class="form-control" />
+        </div>
 
-    <div id="success-block" aria-live="polite" style="margin-top:1em"></div>
-    <p id="status" aria-live="polite"></p>
-  </main>
+        <div class="button-group">
+          <button type="button" class="btn-reset btn" id="btnReset">Reset</button>
+          <button type="submit" class="btn-submit btn" id="btnSubmit">Submit</button>
+        </div>
+      </form>
+
+      <!-- googleStatus removed from public form (moved to Admin dashboard) -->
+      <div id="formStatus" style="margin-top:10px; font-size:13px;"></div>
+      <div id="successBlock" style="margin-top:10px;"></div>
+    </div>
+  </div>
 
   <script>
-    // On page load, fetch /status to see if Google is linked
-    async function updateGoogleStatus() {
-      try {
-        const resp = await fetch('/status');
-        const data = await resp.json();
-        const googleStatusEl = document.getElementById('google-status');
-        if (data.googleLinked) {
-          googleStatusEl.innerHTML = `Google linked${data.hasRefreshToken ? ' (refresh token available)' : ''}${data.hasAccessToken ? ' (access token present)' : ''}${data.expiryDate ? ` — access expiry: ${new Date(data.expiryDate).toLocaleString()}` : ''}`;
-        } else {
-          googleStatusEl.innerHTML = `<a href='/auth' id='connect-google'>Connect Google Calendar</a> — Click to link your calendar and enable Meet generation`;
-        }
-      } catch (err) {
-        // ignore
-      }
-    }
-    updateGoogleStatus();
- 
-    const form = document.getElementById('booking-form');
-    const statusEl = document.getElementById('status');
-    const submitBtn = document.getElementById('submit-btn');
+    // Google status is displayed in the Admin dashboard; remove from public form.
 
-    form.addEventListener('submit', async (e) => {
+    const guestsContainer = document.getElementById('guestsContainer');
+    document.getElementById('addGuestBtn').addEventListener('click', () => {
+      const div = document.createElement('div');
+      div.className = 'guest-row';
+      div.innerHTML = `<input type='email' class='form-control guest-email' placeholder='Guest email'> <button type='button' class='btn btn-sm btn-outline-danger btn-remove'>×</button>`;
+      guestsContainer.appendChild(div);
+      div.querySelector('.btn-remove').addEventListener('click', () => div.remove());
+    });
+
+    const bookingForm = document.getElementById('bookingForm');
+    bookingForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-
-  
+      const btnSubmit = document.getElementById('btnSubmit');
+      btnSubmit.disabled = true;
       const name = document.getElementById('name').value.trim();
       const email = document.getElementById('email').value.trim();
-      const phone = document.getElementById('phone').value.trim();
+      const phone = document.getElementById('contactNumber').value.trim();
+      const companyName = document.getElementById('companyName').value.trim();
+      const meetingDate = document.getElementById('meetingDate').value;
+      const meetingTime = document.getElementById('meetingTime').value;
       const message = document.getElementById('message').value.trim();
-      const meetingDate = document.getElementById('meeting-date').value;
-      const meetingTime = document.getElementById('meeting-time').value;
-
       if (!name || !email || !meetingDate || !meetingTime || !message) {
-        statusEl.textContent = 'All fields are required.';
-        statusEl.style.color = 'red';
+        alert('Please fill required fields');
+        btnSubmit.disabled = false;
         return;
       }
+      const guestEls = document.querySelectorAll('.guest-email');
+      const attendees = [];
+      guestEls.forEach(g => { if (g.value.trim()) attendees.push(g.value.trim()); });
 
-      submitBtn.disabled = true;
-      statusEl.textContent = 'Sending...';
-      statusEl.style.color = 'black';
-
+      const body = { name, email, phone, message, meetingDate, meetingTime, attendees, companyName, industries: document.getElementById('industries').value, jobTitles: document.getElementById('jobTitles').value, priority: document.querySelector('input[name="priority"]:checked')?.value, monthlyContacts: document.getElementById('monthlyContacts').value };
       try {
-        const response = await fetch('http://localhost:5000/send-mail', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          // Add meeting date/time; also include a combined ISO string for convenience
-          body: JSON.stringify({ name, email, phone, message, meetingDate, meetingTime, meetingDateTime: `${meetingDate}T${meetingTime}:00` }),
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-          statusEl.textContent = data.message || 'Meeting request sent successfully!';
-          statusEl.style.color = 'green';
-
-          // Display detailed success block
-          const successBlock = document.getElementById('success-block');
-          const adminEmail = data.adminEmail || '';
-          const start = data.start || (meetingDate + ' ' + meetingTime);
-          const end = data.end || '';
-          const meetLink = data.meetLink || '';
-          const eventLink = data.eventLink || '';
-
-          successBlock.innerHTML = `
-            <div style="border:1px solid #2e7d32; padding:0.8rem; background:#e8f5e9; border-radius:4px;">
-              <p style="margin:0; font-weight:bold">Meeting Scheduled</p>
-              <p style="margin:0.2rem 0">Your meeting is set for <strong>${start}</strong>${end ? ' to ' + end : ''}.</p>
-              ${meetLink ? `<p style="margin:0.2rem 0">Google Meet: <a href="${meetLink}" target="_blank">${meetLink}</a></p>` : ''}
-              ${eventLink ? `<p style="margin:0.2rem 0">Calendar Event: <a href="${eventLink}" target="_blank">Open Event</a></p>` : ''}
-              <p style="margin:0.2rem 0">Admin contact: <strong>${adminEmail}</strong></p>
-              <p style="margin:0.2rem 0; font-size:0.9rem; color:#555">This form will auto-reset in <span id="countdown">30</span> seconds.</p>
-            </div>
-          `;
-
-          // Reset form after 30 seconds with countdown
-          let seconds = 30;
-          const countdownEl = document.getElementById('countdown');
-          const timer = setInterval(() => {
-            seconds -= 1;
-            if (countdownEl) countdownEl.textContent = String(seconds);
-            if (seconds <= 0) {
-              clearInterval(timer);
-              form.reset();
-              statusEl.textContent = '';
-              successBlock.innerHTML = '';
-            }
-          }, 1000);
-          
-          // Show meeting links on page as well
-          if (meetLink || eventLink) {
-            const linkParts = [];
-            if (meetLink) linkParts.push(`<a href="${meetLink}" target="_blank">Join Google Meet</a>`);
-            if (eventLink) linkParts.push(`<a href="${eventLink}" target="_blank">Open Calendar Event</a>`);
-            statusEl.innerHTML += '<br/>' + linkParts.join(' | ');
-          }
+        // Immediate feedback: show spinner while waiting for network response
+        const statusArea = document.getElementById('formStatus');
+        statusArea.innerHTML = `<div class='alert alert-info mb-0'><span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Submitting...</div>`;
+        const res = await fetch('/send-mail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (res.ok) {
+          // Keep 'Submitted' message, and reset form immediately upon success
+          statusArea.innerHTML = `<div class='alert alert-success mb-0'>Submitted — Meeting scheduled for <strong>${data.start}</strong>${data.meetLink ? ` — <a href='${data.meetLink}' target='_blank'>Join Meet</a>` : ''}</div>`;
+          bookingForm.reset();
+          guestsContainer.innerHTML = '';
         } else {
-          statusEl.textContent = data.message || 'Failed to send email.';
-          statusEl.style.color = 'red';
+          statusArea.innerHTML = `<div class='alert alert-danger mb-0'>${data.message || 'Failed to schedule meeting'}</div>`;
         }
-        } catch (error) {
-        statusEl.textContent = 'Failed to send email. Check the server console for errors.';
-        statusEl.style.color = 'red';
+        } catch (err) {
+          console.error('Failed to send', err);
+          const statusArea = document.getElementById('formStatus');
+          statusArea.innerHTML = `<div class='alert alert-danger mb-0'>Failed to send booking request</div>`;
       } finally {
-        submitBtn.disabled = false;
+        btnSubmit.disabled = false;
       }
     });
+
+    document.getElementById('btnReset').addEventListener('click', (e) => { bookingForm.reset(); guestsContainer.innerHTML = ''; });
+    function closeModal() { window.history.back(); }
   </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
